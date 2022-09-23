@@ -1,0 +1,13 @@
+all:
+  vars:
+    ansible_user: root
+    ansible_password: #pass
+    ssh_key: #sshkey to be added to hosts
+  children:
+    master:
+      hosts:
+        node0:
+          ansible_host: #master ip
+    nodes:
+      hosts:
+        #worker nodes ips

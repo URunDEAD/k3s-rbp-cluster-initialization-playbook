@@ -1,0 +1,96 @@
+- name: Verifying connection to the host
+  hosts: all
+  tasks:
+  - name: Ping hosts
+    ansible.builtin.ping:
+
+- name: Configuring ssh key authentication
+  hosts: all
+  tasks:
+  - name: Creating .ssh directory
+    ansible.builtin.shell: mkdir .ssh
+    args:
+      chdir: /root
+  - name: Adding the public key
+    ansible.builtin.shell: echo '{{ ssh_key }}' >> authorized_keys
+    args:
+      chdir: /root/.ssh
+  - name: Changing authorized_keys file permission
+    ansible.builtin.file:
+      path: /root/.ssh/authorized_keys
+      owner: root
+      group: root
+      mode: '600'
+
+- name: Renaming machine
+  hosts: all
+  tasks:
+  - name: Changing hostname
+    ansible.builtin.hostname:
+      name: node{{ play_hosts.index(inventory_hostname) }}
+      use: systemd
+
+- name: Creating restore point
+  hosts: all
+  tasks:
+  - name: Installing timeshift
+    ansible.builtin.shell: zypper install -y timeshift psmisc cron
+  - name: Creating backup
+    ansible.builtin.shell: timeshift --create --comments "fresh install" --tags O
+
+- name: Upgrading & Updateing
+  hosts: all
+  tasks:
+  - name: Performing system upgrade
+    ansible.builtin.shell: zypper dup -y
+  - name: Performing system updating
+    ansible.builtin.shell: zypper update -y
+  - name: Performing system reboot
+    ansible.builtin.reboot:
+
+- name: Getting connection to hosts
+  hosts: all
+  tasks:
+  - name: Ping hosts
+    ansible.builtin.ping:
+
+- name: Creating restore point
+  hosts: all
+  tasks:
+  - name: Creating backup
+    ansible.builtin.shell: timeshift --create --comments "updated"
+
+- name: Installing K3S on master
+  hosts: master
+  tasks:
+  - name: Installing K3S on master node
+    ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -
+
+- name: Get node token
+  hosts: master
+  tasks:
+  - name: Copy token to var
+    ansible.builtin.shell: cat /var/lib/rancher/k3s/server/node-token
+    register: psk
+  - name: Save var as fact
+    ansible.builtin.set_fact:
+      psk: "{{ psk.stdout }}"
+
+- name: Join nodes to master
+  hosts: nodes
+  tasks:
+  - name: Install K3S using the join token
+    ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_URL=https://{{ hostvars['node0']['ansible_default_ipv4']['address'] }}:6443 K3S_TOKEN={{ hostvars['node0']['psk'] }} sh -
+
+- name: Remove ssh password login
+  hosts: all
+  tasks:
+  - name: Deny password login
+    ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      line: PasswordAuthentication no
+      create: true
+  - name: Restart sshd to apply settings
+    ansible.builtin.service:
+      name: sshd
+      state: restarted
